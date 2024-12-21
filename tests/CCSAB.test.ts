@@ -1,21 +1,24 @@
-
 import { describe, expect, it } from "vitest";
 
 const accounts = simnet.getAccounts();
-const address1 = accounts.get("wallet_1")!;
+const deployer = accounts.get("wallet_1")!;
 
-/*
-  The test below is an example. To learn more, read the testing documentation here:
-  https://docs.hiro.so/stacks/clarinet-js-sdk
-*/
+describe("arbitrage-bot", () => {
+    it("should allow owner to update prices", () => {
+        const { result } = simnet.callPublicFn("arbitrage-bot", "update-prices", [
+            types.uint(1000000), // $1.00 on chain A
+            types.uint(1020000)  // $1.02 on chain B
+        ], deployer);
+        expect(result).toBeOk(types.bool(true));
+    });
 
-describe("example tests", () => {
-  it("ensures simnet is well initalised", () => {
-    expect(simnet.blockHeight).toBeDefined();
-  });
-
-  // it("shows an example", () => {
-  //   const { result } = simnet.callReadOnlyFn("counter", "get-counter", [], address1);
-  //   expect(result).toBeUint(0);
-  // });
+    it("should detect arbitrage opportunity", () => {
+        const { result } = simnet.callReadOnlyFn(
+            "arbitrage-bot",
+            "get-arbitrage-opportunity",
+            [],
+            deployer
+        );
+        expect(result).toBeOk();
+    });
 });
