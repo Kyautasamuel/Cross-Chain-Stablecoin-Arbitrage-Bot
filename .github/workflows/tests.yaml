@@ -1,0 +1,21 @@
+name: CI
+on: [push]
+jobs:
+  tests:
+    name: "CCSAB"
+    runs-on: ubuntu-latest
+    steps:
+      - name: "Checkout code"
+        uses: actions/checkout@v3
+      - name: "Check contract syntax"
+        uses: docker://hirosystems/clarinet:latest
+        with:
+          args: check
+      - name: "Setup Node.js"
+        uses: actions/setup-node@v4
+        with:
+          node-version: "18.x"
+      - name: "Prep CI"
+        run: npm ci
+      - name: "Execute unit tests"
+        run: npm run test:report
