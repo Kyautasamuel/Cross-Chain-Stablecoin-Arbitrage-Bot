@@ -98,3 +98,18 @@
         (if (> volume (var-get min-volume-threshold))
             (ok "High volume alert triggered")
             (ok "Volume within normal range"))))
+
+
+(define-constant trend-period u10) ;; Analysis over 10 price points
+
+(define-read-only (analyze-price-trend)
+    (let (
+        (current-price-a (var-get last-price-chain-a))
+        (current-price-b (var-get last-price-chain-b))
+        (previous-price-a (default-to u0 (element-at (var-get price-history-a) trend-period)))
+        (previous-price-b (default-to u0 (element-at (var-get price-history-b) trend-period)))
+    )
+    (ok {
+        chain-a-trend: (if (> current-price-a previous-price-a) "upward" "downward"),
+        chain-b-trend: (if (> current-price-b previous-price-b) "upward" "downward")
+    })))
