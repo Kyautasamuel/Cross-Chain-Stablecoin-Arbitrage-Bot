@@ -48,3 +48,15 @@
             (ok true))))
 
 
+;; Add constant
+(define-constant transaction-fee u10) ;; 0.1% fee
+
+(define-read-only (calculate-potential-profit (trade-amount uint))
+    (let (
+        (price-a (var-get last-price-chain-a))
+        (price-b (var-get last-price-chain-b))
+        (gross-profit (- (if (> price-a price-b) price-a price-b) 
+                        (if (> price-a price-b) price-b price-a)))
+        (fee-amount (* trade-amount transaction-fee))
+    )
+    (ok (- gross-profit fee-amount))))
