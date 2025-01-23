@@ -31,3 +31,20 @@
                 sell-on: (if (> price-b price-a) "chain-b" "chain-a")
             })
             (err u0))))
+
+
+
+;; Add these data variables
+(define-data-var price-history-a (list 100 uint) (list))
+(define-data-var price-history-b (list 100 uint) (list))
+
+;; Add this function
+(define-public (record-price-history)
+    (let ((current-history-a (var-get price-history-a))
+          (current-history-b (var-get price-history-b)))
+        (begin
+            (var-set price-history-a (unwrap! (as-max-len? (concat (list (var-get last-price-chain-a)) current-history-a) u100) (err u1)))
+            (var-set price-history-b (unwrap! (as-max-len? (concat (list (var-get last-price-chain-b)) current-history-b) u100) (err u1)))
+            (ok true))))
+
+
