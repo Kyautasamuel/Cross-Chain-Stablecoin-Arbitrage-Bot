@@ -84,3 +84,17 @@
         opportunity: opportunity,
         blocks-remaining: (+ current-block opportunity-window-blocks)
     })))
+
+
+
+(define-data-var min-volume-threshold uint u1000000) ;; Minimum volume for alert
+(define-map volume-tracker
+    { chain-id: uint }
+    { volume: uint })
+
+(define-public (set-volume-alert (chain-id2 uint) (volume uint))
+    (begin
+        (map-set volume-tracker { chain-id: chain-id2 } { volume: volume })
+        (if (> volume (var-get min-volume-threshold))
+            (ok "High volume alert triggered")
+            (ok "Volume within normal range"))))
