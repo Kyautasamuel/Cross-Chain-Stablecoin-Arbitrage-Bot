@@ -60,3 +60,14 @@
         (fee-amount (* trade-amount transaction-fee))
     )
     (ok (- gross-profit fee-amount))))
+
+
+(define-map chain-price-data
+    { network-id: uint }
+    { price: uint, timestamp: uint })
+
+(define-public (update-chain-price (chain-ids uint) (price uint))
+    (begin
+        (asserts! (is-eq tx-sender contract-owner) (err u100))
+        (map-set chain-price-data { network-id: chain-ids } { price: price, timestamp: stacks-block-height })
+        (ok true)))
