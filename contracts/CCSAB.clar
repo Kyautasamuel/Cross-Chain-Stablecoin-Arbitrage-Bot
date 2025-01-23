@@ -71,3 +71,16 @@
         (asserts! (is-eq tx-sender contract-owner) (err u100))
         (map-set chain-price-data { network-id: chain-ids } { price: price, timestamp: stacks-block-height })
         (ok true)))
+
+
+(define-constant opportunity-window-blocks u10) ;; 10 blocks window
+
+(define-read-only (check-opportunity-window)
+    (let (
+        (current-block stacks-block-height)
+        (opportunity (unwrap-panic (get-arbitrage-opportunity)))
+    )
+    (ok {
+        opportunity: opportunity,
+        blocks-remaining: (+ current-block opportunity-window-blocks)
+    })))
