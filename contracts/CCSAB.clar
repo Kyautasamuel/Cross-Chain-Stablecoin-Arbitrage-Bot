@@ -254,3 +254,110 @@
         total-fee: (* trade-amount adjusted-fee),
         is-peak: is-peak-hour
     })))
+
+
+
+(define-data-var current-slippage uint u100) ;; Default 1%
+
+(define-read-only (check-slippage (expected-price uint) (actual-price uint))
+    (let (
+        (price-diff (if (> expected-price actual-price)
+                       (- expected-price actual-price)
+                       (- actual-price expected-price)))
+        (slippage-percent (* (/ price-diff expected-price) u10000))
+    )
+    (ok (< slippage-percent (var-get current-slippage)))))
+
+(define-data-var contract-paused bool false)
+(define-data-var pause-reason (string-ascii 50) "")
+
+(define-public (emergency-pause (reason (string-ascii 50)))
+    (begin
+        (asserts! (is-eq tx-sender contract-owner) (err u100))
+        (var-set contract-paused true)
+        (var-set pause-reason reason)
+        (ok true)))
+
+(define-public (resume-contract)
+    (begin
+        (asserts! (is-eq tx-sender contract-owner) (err u100))
+        (var-set contract-paused false)
+        (var-set pause-reason "")
+        (ok true)))
+
+
+(define-constant min-optimal-trade u1000)
+(define-constant max-optimal-trade u100000)
+(define-map trade-size-history
+    { trade-id: uint }
+    { size: uint, success-rate: uint })
+
+(define-read-only (optimize-trade-size (volatility uint))
+    (let (
+        (base-size (/ max-optimal-trade volatility))
+        (optimal-size (if (< base-size min-optimal-trade)
+                         min-optimal-trade
+                         (if (> base-size max-optimal-trade)
+                             max-optimal-trade
+                             base-size)))
+    )
+    (ok optimal-size)))
+
+
+(define-constant impact-threshold u200) ;; 2% threshold
+(define-map price-impact
+    { chain-id: uint }
+    { impact-percentage: uint, trade-size: uint })
+
+(define-read-only (analyze-price-impact (trade-size uint) (current-price uint))
+    (let (
+        (estimated-impact (* (/ trade-size current-price) u10000))
+    )
+    (ok (< estimated-impact impact-threshold))))
+
+
+(define-map route-efficiency
+    { path-id: uint }
+    { success-rate: uint, avg-profit: uint })
+
+(define-read-only (find-best-path)
+    (let (
+        (path-a-profit (unwrap-panic (calculate-potential-profit u1000)))
+        (path-b-profit (unwrap-panic (calculate-potential-profit u2000)))
+    )
+    (ok (if (> path-a-profit path-b-profit)
+            { best-path: "A", expected-profit: path-a-profit }
+            { best-path: "B", expected-profit: path-b-profit }))))
+
+
+(define-data-var min-profit-threshold uint u50)
+(define-data-var max-profit-threshold uint u500)
+
+(define-read-only (is-profit-acceptable (expected-profit uint))
+    (ok (and (>= expected-profit (var-get min-profit-threshold))
+             (<= expected-profit (var-get max-profit-threshold)))))
+
+
+(define-map network-status
+    { chain-id: uint }
+    { is-active: bool, last-check: uint })
+
+(define-public (update-network-status (chain-id uint) (status bool))
+    (begin
+        (asserts! (is-eq tx-sender contract-owner) (err u100))
+        (ok (map-set network-status
+            { chain-id: chain-id }
+            { is-active: status, last-check: stacks-block-height }))))
+
+
+(define-constant max-execution-time u10) ;; blocks
+(define-map execution-times
+    { trade-id: uint }
+    { start-time: uint, end-time: uint })
+
+(define-public (record-execution-time (trade-id uint))
+    (begin
+        (map-set execution-times
+            { trade-id: trade-id }
+            { start-time: stacks-block-height, end-time: (+ stacks-block-height u1) })
+        (ok true)))
