@@ -1,4 +1,4 @@
-;; Cross-Chain Stablecoin Arbitrage Bot
+ ;; Cross-Chain Stablecoin Arbitrage Bot
 
 ;; Constants
 (define-constant contract-owner tx-sender)
@@ -89,12 +89,12 @@
 
 (define-data-var min-volume-threshold uint u1000000) ;; Minimum volume for alert
 (define-map volume-tracker
-    { chain-id: uint }
+    { volume-chain-id: uint }
     { volume: uint })
 
 (define-public (set-volume-alert (chain-id2 uint) (volume uint))
     (begin
-        (map-set volume-tracker { chain-id: chain-id2 } { volume: volume })
+        (map-set volume-tracker { volume-chain-id: chain-id2 } { volume: volume })
         (if (> volume (var-get min-volume-threshold))
             (ok "High volume alert triggered")
             (ok "Volume within normal range"))))
@@ -144,11 +144,11 @@
 
 
 (define-map liquidity-pools
-    { pool-id: uint }
+    { liquidity-pool-id: uint }
     { total-liquidity: uint, utilization-rate: uint })
 
 (define-public (analyze-pool-depth (pool-id uint))
-    (let ((pool-data (unwrap! (map-get? liquidity-pools { pool-id: pool-id }) (err u0))))
+    (let ((pool-data (unwrap! (map-get? liquidity-pools { liquidity-pool-id: pool-id }) (err u0))))
     (ok {
         pool-health: (if (> (get utilization-rate pool-data) u800) "Low" "Good"),
         tradeable-amount: (/ (get total-liquidity pool-data) u10)
@@ -216,15 +216,15 @@
 
 
 (define-map market-indicators
-    { chain-id: uint }
+    { market-chain-id: uint }
     { buy-pressure: uint, sell-pressure: uint })
 
 (define-read-only (analyze-market-sentiment)
     (let (
         (chain-a-pressure (default-to { buy-pressure: u0, sell-pressure: u0 } 
-                          (map-get? market-indicators { chain-id: u1 })))
+                          (map-get? market-indicators { market-chain-id: u1 })))
         (chain-b-pressure (default-to { buy-pressure: u0, sell-pressure: u0 } 
-                          (map-get? market-indicators { chain-id: u2 })))
+                          (map-get? market-indicators { market-chain-id: u2 })))
     )
     (ok {
         chain-a-sentiment: (if (> (get buy-pressure chain-a-pressure) 
@@ -306,7 +306,7 @@
 
 (define-constant impact-threshold u200) ;; 2% threshold
 (define-map price-impact
-    { chain-id: uint }
+    { impact-chain-id: uint }
     { impact-percentage: uint, trade-size: uint })
 
 (define-read-only (analyze-price-impact (trade-size uint) (current-price uint))
@@ -339,14 +339,14 @@
 
 
 (define-map network-status
-    { chain-id: uint }
+    { network-chain-id: uint }
     { is-active: bool, last-check: uint })
 
-(define-public (update-network-status (chain-id uint) (status bool))
+(define-public (update-network-status (chain-id-network uint) (status bool))
     (begin
         (asserts! (is-eq tx-sender contract-owner) (err u100))
         (ok (map-set network-status
-            { chain-id: chain-id }
+            { network-chain-id: chain-id-network }
             { is-active: status, last-check: stacks-block-height }))))
 
 
