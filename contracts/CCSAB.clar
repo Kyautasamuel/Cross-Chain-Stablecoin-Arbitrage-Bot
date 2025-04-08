@@ -361,3 +361,239 @@
             { trade-id: trade-id }
             { start-time: stacks-block-height, end-time: (+ stacks-block-height u1) })
         (ok true)))
+
+
+
+
+(define-map profit-sharing
+    { user: principal }
+    { share-percentage: uint, total-earned: uint })
+
+(define-data-var total-profits uint u0)
+(define-data-var owner-share uint u700) ;; 70% to owner
+
+(define-public (register-profit-share (user principal) (percentage uint))
+    (begin
+        (asserts! (is-eq tx-sender contract-owner) (err u100))
+        (asserts! (<= percentage u300) (err u101)) ;; Max 30% share
+        (map-set profit-sharing 
+            { user: user }
+            { share-percentage: percentage, total-earned: u0 })
+        (ok true)))
+
+(define-public (distribute-profits (profit-amount uint))
+    (let ((owner-amount (/ (* profit-amount (var-get owner-share)) u1000)))
+        (begin
+            (var-set total-profits (+ (var-get total-profits) profit-amount))
+            (ok { owner-share: owner-amount, remaining: (- profit-amount owner-amount) })
+        )))
+
+
+(define-map notification-subscribers
+    { user: principal }
+    { min-opportunity-size: uint, active: bool })
+
+(define-data-var notification-counter uint u0)
+(define-map sent-notifications
+    { id: uint }
+    { user: principal, opportunity-size: uint, timestamp: uint })
+
+(define-public (subscribe-to-notifications (min-opportunity uint))
+    (begin
+        (map-set notification-subscribers
+            { user: tx-sender }
+            { min-opportunity-size: min-opportunity, active: true })
+        (ok true)))
+
+(define-public (toggle-notifications (active bool))
+    (let ((current-subscription (default-to { min-opportunity-size: u0, active: false }
+                               (map-get? notification-subscribers { user: tx-sender }))))
+        (begin
+            (map-set notification-subscribers
+                { user: tx-sender }
+                { min-opportunity-size: (get min-opportunity-size current-subscription), active: active })
+            (ok active))))
+
+(define-public (send-notification (user principal) (opportunity-size uint))
+    (begin
+        (asserts! (is-eq tx-sender contract-owner) (err u100))
+        (var-set notification-counter (+ (var-get notification-counter) u1))
+        (map-set sent-notifications
+            { id: (var-get notification-counter) }
+            { user: user, opportunity-size: opportunity-size, timestamp: stacks-block-height })
+        (ok (var-get notification-counter))))
+
+
+
+(define-map performance-metrics
+    { day: uint }
+    { trades-executed: uint, total-profit: uint, average-profit: uint })
+
+(define-data-var current-day uint u0)
+(define-data-var total-trades-all-time uint u0)
+
+(define-public (record-daily-performance (day uint) (trades uint) (profit uint))
+    (begin
+        (asserts! (is-eq tx-sender contract-owner) (err u100))
+        (var-set current-day day)
+        (var-set total-trades-all-time (+ (var-get total-trades-all-time) trades))
+        (map-set performance-metrics
+            { day: day }
+            { trades-executed: trades, 
+              total-profit: profit, 
+              average-profit: (if (> trades u0) (/ profit trades) u0) })
+        (ok true)))
+
+(define-read-only (get-performance-summary (days uint))
+    (let ((current (var-get current-day))
+          (start-day (if (> current days) (- current days) u0)))
+        (ok {
+            current-day: current,
+            total-trades: (var-get total-trades-all-time),
+            days-analyzed: (- current start-day)
+        })))
+
+
+(define-map token-registry
+    { token-id: uint }
+    { name: (string-ascii 32), 
+      chain-a-address: (string-ascii 42), 
+      chain-b-address: (string-ascii 42),
+      is-active: bool })
+
+(define-data-var supported-token-count uint u0)
+
+(define-public (register-token (token-id uint) 
+                              (name (string-ascii 32)) 
+                              (address-a (string-ascii 42)) 
+                              (address-b (string-ascii 42)))
+    (begin
+        (asserts! (is-eq tx-sender contract-owner) (err u100))
+        (map-set token-registry
+            { token-id: token-id }
+            { name: name, 
+              chain-a-address: address-a, 
+              chain-b-address: address-b,
+              is-active: true })
+        (var-set supported-token-count (+ (var-get supported-token-count) u1))
+        (ok token-id)))
+
+(define-public (toggle-token-status (token-id uint) (active bool))
+    (let ((token-data (unwrap! (map-get? token-registry { token-id: token-id }) (err u404))))
+        (begin
+            (map-set token-registry
+                { token-id: token-id }
+                { name: (get name token-data),
+                  chain-a-address: (get chain-a-address token-data),
+                  chain-b-address: (get chain-b-address token-data),
+                  is-active: active })
+            (ok active))))
+
+
+(define-constant strategy-conservative u1)
+(define-constant strategy-balanced u2)
+(define-constant strategy-aggressive u3)
+
+(define-map trading-strategies
+    { strategy-id: uint }
+    { name: (string-ascii 20), 
+      min-profit-bps: uint, 
+      max-slippage: uint,
+      risk-score: uint })
+
+(define-data-var current-strategy uint u2) ;; Default to balanced
+
+(define-public (initialize-strategies)
+    (begin
+        (map-set trading-strategies
+            { strategy-id: strategy-conservative }
+            { name: "Conservative", min-profit-bps: u200, max-slippage: u50, risk-score: u25 })
+        (map-set trading-strategies
+            { strategy-id: strategy-balanced }
+            { name: "Balanced", min-profit-bps: u100, max-slippage: u100, risk-score: u50 })
+        (map-set trading-strategies
+            { strategy-id: strategy-aggressive }
+            { name: "Aggressive", min-profit-bps: u50, max-slippage: u200, risk-score: u75 })
+        (ok true)))
+
+(define-public (set-active-strategy (strategy-id uint))
+    (begin
+        (asserts! (is-eq tx-sender contract-owner) (err u100))
+        ;; (asserts! (map-get? trading-strategies { strategy-id: strategy-id }) (err u404))
+        (var-set current-strategy strategy-id)
+        (ok strategy-id)))
+
+(define-read-only (get-strategy-parameters)
+    (let ((strategy (unwrap! (map-get? trading-strategies { strategy-id: (var-get current-strategy) }) (err u404))))
+        (ok strategy)))
+
+
+
+(define-map authorized-traders
+    { trader: principal }
+    { is-active: bool, max-trade-size: uint })
+
+(define-data-var whitelist-enabled bool true)
+
+(define-public (add-authorized-trader (trader principal) (max-size uint))
+    (begin
+        (asserts! (is-eq tx-sender contract-owner) (err u100))
+        (map-set authorized-traders
+            { trader: trader }
+            { is-active: true, max-trade-size: max-size })
+        (ok trader)))
+
+(define-public (remove-authorized-trader (trader principal))
+    (begin
+        (asserts! (is-eq tx-sender contract-owner) (err u100))
+        (map-delete authorized-traders { trader: trader })
+        (ok trader)))
+
+(define-public (toggle-whitelist (enabled bool))
+    (begin
+        (asserts! (is-eq tx-sender contract-owner) (err u100))
+        (var-set whitelist-enabled enabled)
+        (ok enabled)))
+
+(define-read-only (check-trader-authorization (trader principal) (trade-size uint))
+    (let ((trader-data (default-to { is-active: false, max-trade-size: u0 }
+                       (map-get? authorized-traders { trader: trader }))))
+        (ok (and 
+              (or (not (var-get whitelist-enabled)) 
+                  (get is-active trader-data))
+              (<= trade-size (get max-trade-size trader-data))))))
+
+
+(define-data-var circuit-breaker-triggered bool false)
+(define-data-var volatility-threshold uint u500) ;; 5% threshold
+(define-data-var cool-down-period uint u144) ;; ~24 hours in blocks
+(define-data-var circuit-breaker-triggered-at uint u0)
+
+(define-public (check-and-trigger-circuit-breaker)
+    (let ((price-a (var-get last-price-chain-a))
+          (price-b (var-get last-price-chain-b))
+          (price-diff-percent (/ (* (if (> price-a price-b) (- price-a price-b) (- price-b price-a)) u10000) (if (< price-a price-b) price-a price-b))))
+        (begin
+            (if (> price-diff-percent (var-get volatility-threshold))
+                (begin
+                    (var-set circuit-breaker-triggered true)
+                    (var-set circuit-breaker-triggered-at stacks-block-height)
+                    (ok true))
+                (ok false)))))
+(define-public (reset-circuit-breaker)
+    (begin
+        (asserts! (is-eq tx-sender contract-owner) (err u100))
+        (asserts! (>= (- stacks-block-height (var-get circuit-breaker-triggered-at)) 
+                     (var-get cool-down-period)) 
+                 (err u101))
+        (var-set circuit-breaker-triggered false)
+        (ok true)))
+
+(define-read-only (get-circuit-breaker-status)
+    (ok {
+        is-triggered: (var-get circuit-breaker-triggered),
+        triggered-at: (var-get circuit-breaker-triggered-at),
+        can-reset: (>= (- stacks-block-height (var-get circuit-breaker-triggered-at)) 
+                     (var-get cool-down-period))
+    }))
+
