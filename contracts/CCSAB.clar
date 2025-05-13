@@ -624,3 +624,29 @@
         })))
 
 
+(define-map position-metrics
+    { market-id: uint }
+    { depth: uint, volatility: uint, success-rate: uint })
+
+(define-constant min-position-size u1000)
+(define-constant max-position-size u100000)
+(define-data-var risk-factor uint u80)
+
+(define-public (update-market-metrics (market-id uint) (depth uint) (volatility uint) (success-rate uint))
+    (begin
+        (asserts! (is-eq tx-sender contract-owner) (err u100))
+        (map-set position-metrics
+            { market-id: market-id }
+            { depth: depth, volatility: volatility, success-rate: success-rate })
+        (ok true)))
+
+(define-read-only (calculate-position-size (market-id uint))
+    (let ((metrics (unwrap! (map-get? position-metrics { market-id: market-id }) (err u404)))
+          (base-size (/ (get depth metrics) (get volatility metrics)))
+          (adjusted-size (* base-size (get success-rate metrics)))
+          (risk-adjusted-size (/ (* adjusted-size (var-get risk-factor)) u100)))
+        (ok (if (< risk-adjusted-size min-position-size)
+                min-position-size
+                (if (> risk-adjusted-size max-position-size)
+                    max-position-size
+                    risk-adjusted-size)))))
