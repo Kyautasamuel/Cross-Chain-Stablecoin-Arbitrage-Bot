@@ -66,10 +66,10 @@
     { network-id: uint }
     { price: uint, timestamp: uint })
 
-(define-public (update-chain-price (chain-ids uint) (price uint))
+(define-public (update-chain-price (network-id-param uint) (price uint))
     (begin
         (asserts! (is-eq tx-sender contract-owner) (err u100))
-        (map-set chain-price-data { network-id: chain-ids } { price: price, timestamp: stacks-block-height })
+        (map-set chain-price-data { network-id: network-id-param } { price: price, timestamp: stacks-block-height })
         (ok true)))
 
 
@@ -92,9 +92,9 @@
     { volume-chain-id: uint }
     { volume: uint })
 
-(define-public (set-volume-alert (chain-id2 uint) (volume uint))
+(define-public (set-volume-alert (volume-chain-id uint) (volume uint))
     (begin
-        (map-set volume-tracker { volume-chain-id: chain-id2 } { volume: volume })
+        (map-set volume-tracker { volume-chain-id: volume-chain-id } { volume: volume })
         (if (> volume (var-get min-volume-threshold))
             (ok "High volume alert triggered")
             (ok "Volume within normal range"))))
@@ -342,11 +342,11 @@
     { network-chain-id: uint }
     { is-active: bool, last-check: uint })
 
-(define-public (update-network-status (chain-id-network uint) (status bool))
+(define-public (update-network-status (network-id-param uint) (status bool))
     (begin
         (asserts! (is-eq tx-sender contract-owner) (err u100))
         (ok (map-set network-status
-            { network-chain-id: chain-id-network }
+            { network-chain-id: network-id-param }
             { is-active: status, last-check: stacks-block-height }))))
 
 
@@ -596,4 +596,31 @@
         can-reset: (>= (- stacks-block-height (var-get circuit-breaker-triggered-at)) 
                      (var-get cool-down-period))
     }))
+
+(define-map gas-price-data
+    { gas-chain-id: uint }
+    { current-price: uint, average-price: uint, last-updated: uint })
+
+(define-data-var gas-threshold uint u1000)
+(define-constant max-gas-multiplier u3)
+
+(define-public (update-gas-price (chain-ids uint) (price uint))
+    (let ((existing-data (default-to { current-price: u0, average-price: u0, last-updated: u0 }
+                         (map-get? gas-price-data { gas-chain-id: chain-ids }))))
+        (begin
+            (map-set gas-price-data
+                { gas-chain-id: chain-ids }
+                { current-price: price,
+                  average-price: (/ (+ price (get average-price existing-data)) u2),
+                  last-updated: stacks-block-height })
+            (ok price))))
+
+(define-read-only (get-gas-efficiency (chain-ids uint))
+    (let ((gas-data (unwrap! (map-get? gas-price-data { gas-chain-id: chain-ids }) (err u404))))
+        (ok {
+            is-optimal: (<= (get current-price gas-data) (get average-price gas-data)),
+            multiplier: (/ (get current-price gas-data) (get average-price gas-data)),
+            should-execute: (< (get current-price gas-data) (var-get gas-threshold))
+        })))
+
 
