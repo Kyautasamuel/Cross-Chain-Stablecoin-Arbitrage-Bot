@@ -650,3 +650,176 @@
                 (if (> risk-adjusted-size max-position-size)
                     max-position-size
                     risk-adjusted-size)))))
+
+(define-constant execution-engine-enabled u1)
+(define-constant execution-engine-disabled u0)
+
+(define-data-var auto-execution-enabled uint execution-engine-disabled)
+(define-data-var min-auto-execution-profit uint u200)
+(define-data-var max-auto-execution-amount uint u50000)
+(define-data-var execution-counter uint u0)
+
+(define-map execution-history
+    { execution-id: uint }
+    { 
+        trade-amount: uint,
+        profit-realized: uint,
+        price-a: uint,
+        price-b: uint,
+        execution-block: uint,
+        gas-used: uint
+    })
+
+(define-map execution-queue
+    { queue-id: uint }
+    {
+        trade-amount: uint,
+        target-profit: uint,
+        max-slippage: uint,
+        expiry-block: uint,
+        status: uint
+    })
+
+(define-data-var queue-counter uint u0)
+(define-constant status-pending u1)
+(define-constant status-executed u2)
+(define-constant status-expired u3)
+(define-constant status-failed u4)
+
+(define-public (enable-auto-execution (min-profit uint) (max-amount uint))
+    (begin
+        (asserts! (is-eq tx-sender contract-owner) (err u100))
+        (asserts! (> min-profit u0) (err u101))
+        (asserts! (> max-amount u0) (err u102))
+        (var-set auto-execution-enabled execution-engine-enabled)
+        (var-set min-auto-execution-profit min-profit)
+        (var-set max-auto-execution-amount max-amount)
+        (ok true)))
+
+(define-public (disable-auto-execution)
+    (begin
+        (asserts! (is-eq tx-sender contract-owner) (err u100))
+        (var-set auto-execution-enabled execution-engine-disabled)
+        (ok true)))
+
+(define-public (queue-execution (trade-amount uint) (target-profit uint) (max-slippage-param uint) (blocks-to-expiry uint))
+    (let ((queue-id (+ (var-get queue-counter) u1)))
+        (begin
+            (asserts! (is-eq (var-get auto-execution-enabled) execution-engine-enabled) (err u200))
+            (asserts! (<= trade-amount (var-get max-auto-execution-amount)) (err u201))
+            (asserts! (>= target-profit (var-get min-auto-execution-profit)) (err u202))
+            (var-set queue-counter queue-id)
+            (map-set execution-queue
+                { queue-id: queue-id }
+                {
+                    trade-amount: trade-amount,
+                    target-profit: target-profit,
+                    max-slippage: max-slippage-param,
+                    expiry-block: (+ stacks-block-height blocks-to-expiry),
+                    status: status-pending
+                })
+            (ok queue-id))))
+
+(define-public (execute-queued-trade (queue-id uint))
+    (let ((queue-item (unwrap! (map-get? execution-queue { queue-id: queue-id }) (err u300)))
+          (current-opportunity (unwrap! (get-arbitrage-opportunity) (err u301)))
+          (execution-id (+ (var-get execution-counter) u1)))
+        (begin
+            (asserts! (is-eq tx-sender contract-owner) (err u100))
+            (asserts! (is-eq (get status queue-item) status-pending) (err u302))
+            (asserts! (< stacks-block-height (get expiry-block queue-item)) (err u303))
+            (asserts! (>= (get price-difference current-opportunity) (get target-profit queue-item)) (err u304))
+            
+            (var-set execution-counter execution-id)
+            (map-set execution-history
+                { execution-id: execution-id }
+                {
+                    trade-amount: (get trade-amount queue-item),
+                    profit-realized: (get price-difference current-opportunity),
+                    price-a: (var-get last-price-chain-a),
+                    price-b: (var-get last-price-chain-b),
+                    execution-block: stacks-block-height,
+                    gas-used: u21000
+                })
+            
+            (map-set execution-queue
+                { queue-id: queue-id }
+                {
+                    trade-amount: (get trade-amount queue-item),
+                    target-profit: (get target-profit queue-item),
+                    max-slippage: (get max-slippage queue-item),
+                    expiry-block: (get expiry-block queue-item),
+                    status: status-executed
+                })
+            (ok execution-id))))
+
+(define-public (cancel-queued-trade (queue-id uint))
+    (let ((queue-item (unwrap! (map-get? execution-queue { queue-id: queue-id }) (err u300))))
+        (begin
+            (asserts! (is-eq tx-sender contract-owner) (err u100))
+            (asserts! (is-eq (get status queue-item) status-pending) (err u302))
+            (map-set execution-queue
+                { queue-id: queue-id }
+                {
+                    trade-amount: (get trade-amount queue-item),
+                    target-profit: (get target-profit queue-item),
+                    max-slippage: (get max-slippage queue-item),
+                    expiry-block: (get expiry-block queue-item),
+                    status: status-expired
+                })
+            (ok true))))
+
+(define-public (auto-execute-opportunity)
+    (let ((opportunity (unwrap! (get-arbitrage-opportunity) (err u400)))
+          (execution-id (+ (var-get execution-counter) u1))
+          (estimated-amount (var-get max-auto-execution-amount)))
+        (begin
+            (asserts! (is-eq (var-get auto-execution-enabled) execution-engine-enabled) (err u401))
+            (asserts! (>= (get price-difference opportunity) (var-get min-auto-execution-profit)) (err u402))
+            
+            (var-set execution-counter execution-id)
+            (map-set execution-history
+                { execution-id: execution-id }
+                {
+                    trade-amount: estimated-amount,
+                    profit-realized: (get price-difference opportunity),
+                    price-a: (var-get last-price-chain-a),
+                    price-b: (var-get last-price-chain-b),
+                    execution-block: stacks-block-height,
+                    gas-used: u21000
+                })
+            (ok execution-id))))
+
+(define-read-only (get-execution-status (execution-id uint))
+    (let ((execution-data (unwrap! (map-get? execution-history { execution-id: execution-id }) (err u500))))
+        (ok execution-data)))
+
+(define-read-only (get-queue-status (queue-id uint))
+    (let ((queue-data (unwrap! (map-get? execution-queue { queue-id: queue-id }) (err u500))))
+        (ok queue-data)))
+
+(define-read-only (get-auto-execution-config)
+    (ok {
+        enabled: (is-eq (var-get auto-execution-enabled) execution-engine-enabled),
+        min-profit: (var-get min-auto-execution-profit),
+        max-amount: (var-get max-auto-execution-amount),
+        total-executions: (var-get execution-counter),
+        total-queued: (var-get queue-counter)
+    }))
+
+(define-public (cleanup-expired-queue-items)
+    (begin
+        (asserts! (is-eq tx-sender contract-owner) (err u100))
+        (ok true)))
+
+(define-read-only (calculate-execution-profitability (trade-amount uint))
+    (let ((opportunity (unwrap! (get-arbitrage-opportunity) (err u600)))
+          (gross-profit (* trade-amount (get price-difference opportunity)))
+          (execution-cost u21000)
+          (net-profit (- gross-profit execution-cost)))
+        (ok {
+            gross-profit: gross-profit,
+            execution-cost: execution-cost,
+            net-profit: net-profit,
+            profitable: (> net-profit u0)
+        })))
