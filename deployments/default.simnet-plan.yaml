@@ -54,4 +54,14 @@ plan:
             emulated-sender: ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM
             path: "contracts\\CCSAB.clar"
             clarity-version: 3
+        - emulated-contract-publish:
+            contract-name: LiquidityAggregator
+            emulated-sender: ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM
+            path: "contracts\\LiquidityAggregator.clar"
+            clarity-version: 3
+        - emulated-contract-publish:
+            contract-name: MEVProtection
+            emulated-sender: ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM
+            path: "contracts\\MEVProtection.clar"
+            clarity-version: 3
       epoch: "3.1"
