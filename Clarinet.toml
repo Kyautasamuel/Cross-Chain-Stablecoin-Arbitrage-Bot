@@ -12,6 +12,29 @@ epoch = 3.1
 [repl.analysis]
 passes = ['check_checker']
 
+[contracts.MEVProtection]
+path = 'contracts/MEVProtection.clar'
+clarity_version = 3
+epoch = 3.1
+[repl.MEVProtection]
+passes = ['check_checker']
+
+[contracts.LiquidityAggregator]
+path = 'contracts/LiquidityAggregator.clar'
+clarity_version = 3
+epoch = 3.1
+
+[contracts.transaction-cost-optimizer]
+path = 'contracts/transaction-cost-optimizer.clar'
+clarity_version = 3
+epoch = 3.1
+
+[repl.LiquidityAggregator]
+passes = ['check_checker']
+
+[repl.transaction-cost-optimizer]
+passes = ['check_checker']
+
 [repl.analysis.check_checker]
 strict = false
 trusted_sender = false
