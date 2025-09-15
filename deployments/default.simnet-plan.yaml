@@ -64,4 +64,9 @@ plan:
             emulated-sender: ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM
             path: "contracts\\MEVProtection.clar"
             clarity-version: 3
+        - emulated-contract-publish:
+            contract-name: transaction-cost-optimizer
+            emulated-sender: ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM
+            path: "contracts\\transaction-cost-optimizer.clar"
+            clarity-version: 3
       epoch: "3.1"

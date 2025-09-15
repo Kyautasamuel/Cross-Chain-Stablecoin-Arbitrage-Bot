@@ -823,3 +823,129 @@
             net-profit: net-profit,
             profitable: (> net-profit u0)
         })))
+
+;; Moving Average Price Analytics Feature
+;; Provides on-chain technical analysis for arbitrage decisions
+
+;; Constants for moving average calculations
+(define-constant max-ma-window u100)
+(define-constant default-ma-window u20)
+
+;; Moving average window configuration
+(define-data-var ma-window uint default-ma-window)
+
+;; Helper function to calculate sum of a list of prices
+(define-private (calculate-sum (prices (list 100 uint)))
+    (fold + prices u0))
+
+;; Helper function to get minimum of two values
+(define-private (min (a uint) (b uint))
+    (if (< a b) a b))
+
+;; Helper function to take first N elements from a list
+(define-private (take (n uint) (lst (list 100 uint)))
+    (let ((result (list)))
+        (if (is-eq n u0)
+            (list)
+            (if (is-eq (len lst) u0)
+                (list)
+                (unwrap-panic (as-max-len? (append result (unwrap-panic (element-at? lst u0))) u100))))))
+
+;; Set moving average window (owner only)
+(define-public (set-ma-window (window uint))
+    (begin
+        (asserts! (is-eq tx-sender contract-owner) (err u100))
+        (asserts! (> window u0) (err u101))
+        (asserts! (<= window max-ma-window) (err u102))
+        (var-set ma-window window)
+        (ok window)))
+
+;; Calculate moving average for specified chain
+(define-read-only (get-moving-average (chain (string-ascii 7)))
+    (let ((window (var-get ma-window))
+          (price-list (if (is-eq chain "chain-a")
+                         (var-get price-history-a)
+                         (if (is-eq chain "chain-b")
+                             (var-get price-history-b)
+                             (list)))))
+        (if (is-eq (len price-list) u0)
+            (ok u0)
+            (let ((relevant-prices (if (> (len price-list) window)
+                                      price-list  ;; For simplicity, use full list
+                                      price-list))
+                  (price-sum (calculate-sum relevant-prices))
+                  (actual-window (min window (len relevant-prices))))
+                (if (is-eq actual-window u0)
+                    (ok u0)
+                    (ok (/ price-sum actual-window)))))))
+
+;; Get moving average for both chains
+(define-read-only (get-dual-moving-averages)
+    (let ((ma-a (unwrap-panic (get-moving-average "chain-a")))
+          (ma-b (unwrap-panic (get-moving-average "chain-b"))))
+        (ok {
+            chain-a-ma: ma-a,
+            chain-b-ma: ma-b,
+            ma-difference: (if (> ma-a ma-b) (- ma-a ma-b) (- ma-b ma-a)),
+            trending-higher: (if (> ma-a ma-b) "chain-a" "chain-b")
+        })))
+
+;; Calculate price deviation from moving average
+(define-read-only (calculate-ma-deviation (chain (string-ascii 7)))
+    (let ((current-price (if (is-eq chain "chain-a")
+                            (var-get last-price-chain-a)
+                            (var-get last-price-chain-b)))
+          (ma-price (unwrap-panic (get-moving-average chain))))
+        (if (is-eq ma-price u0)
+            (ok {
+                current-price: current-price,
+                ma-price: u0,
+                deviation: u0,
+                deviation-percent: u0,
+                above-ma: false
+            })
+            (let ((deviation (if (> current-price ma-price)
+                               (- current-price ma-price)
+                               (- ma-price current-price)))
+                  (deviation-percent (/ (* deviation u10000) ma-price)))
+                (ok {
+                    current-price: current-price,
+                    ma-price: ma-price,
+                    deviation: deviation,
+                    deviation-percent: deviation-percent,
+                    above-ma: (> current-price ma-price)
+                })))))
+
+;; Enhanced arbitrage signal with moving average analysis
+(define-read-only (get-enhanced-arbitrage-signal)
+    (let ((basic-opportunity (unwrap! (get-arbitrage-opportunity) (err u0)))
+          (ma-a (unwrap-panic (get-moving-average "chain-a")))
+          (ma-b (unwrap-panic (get-moving-average "chain-b")))
+          (current-a (var-get last-price-chain-a))
+          (current-b (var-get last-price-chain-b)))
+        (ok {
+            basic-opportunity: basic-opportunity,
+            ma-signal: {
+                chain-a-above-ma: (> current-a ma-a),
+                chain-b-above-ma: (> current-b ma-b),
+                ma-spread: (if (> ma-a ma-b) (- ma-a ma-b) (- ma-b ma-a)),
+                price-ma-alignment: (and 
+                    (> current-a ma-a)
+                    (< current-b ma-b))
+            },
+            signal-strength: (if (and (> current-a ma-a) (< current-b ma-b))
+                               "strong"
+                               (if (or (> current-a ma-a) (< current-b ma-b))
+                                   "moderate"
+                                   "weak"))
+        })))
+
+;; Get moving average configuration
+(define-read-only (get-ma-config)
+    (ok {
+        current-window: (var-get ma-window),
+        max-window: max-ma-window,
+        default-window: default-ma-window,
+        history-a-length: (len (var-get price-history-a)),
+        history-b-length: (len (var-get price-history-b))
+    }))
